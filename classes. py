@@ -1,1 +1,233 @@
 WELCOME 🤗🤗🤗🤗
+import os
+import sqlite3
+from datetime import datetime
+
+DB_NAME = "church_management.db"
+
+class DatabaseManager:
+    """Handles all low-level SQLite database operations and table initializations."""
+    @staticmethod
+    def get_connection():
+        return sqlite3.connect(DB_NAME)
+
+    @staticmethod
+    def initialize_db():
+        with DatabaseManager.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Create Members Table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS members (
+                    member_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    first_name TEXT NOT NULL,
+                    last_name TEXT NOT NULL,
+                    phone TEXT,
+                    email TEXT,
+                    join_date TEXT NOT NULL
+                )
+            """)
+            
+            # Create Financial Contributions Table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS financial_contributions (
+                    contribution_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    member_id INTEGER,
+                    amount REAL NOT NULL,
+                    type TEXT NOT NULL, -- Tithe, Offering, Building Fund, etc.
+                    date TEXT NOT NULL,
+                    FOREIGN KEY (member_id) REFERENCES members (member_id) ON DELETE CASCADE
+                )
+            """)
+            
+            # Create Events Table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS events (
+                    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    event_date TEXT NOT NULL,
+                    location TEXT NOT NULL
+                )
+            """)
+            conn.commit()
+
+
+class MemberManager:
+    """Handles operations related to church members."""
+    @staticmethod
+    def add_member(first_name, last_name, phone, email):
+        join_date = datetime.now().strftime("%Y-%m-%d")
+        with DatabaseManager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO members (first_name, last_name, phone, email, join_date) VALUES (?, ?, ?, ?, ?)",
+                (first_name, last_name, phone, email, join_date)
+            )
+            conn.commit()
+            print(f"\n[Success] Member '{first_name} {last_name}' registered successfully with ID: {cursor.lastrowid}!")
+
+    @staticmethod
+    def view_all_members():
+        with DatabaseManager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM members")
+            rows = cursor.fetchall()
+            
+            if not rows:
+                print("\n[Info] No registered members found.")
+                return
+            
+            print(f"\n--- {'ID':<5} | {'Full Name':<25} | {'Phone':<15} | {'Email':<25} | {'Join Date':<12} ---")
+            for row in rows:
+                full_name = f"{row[1]} {row[2]}"
+                print(f"    {row[0]:<5} | {full_name:<25} | {row[3]:<15} | {row[4]:<25} | {row[5]:<12}")
+
+
+class FinancialManager:
+    """Handles processing of tithes, offerings, and financial summaries."""
+    @staticmethod
+    def add_contribution(member_id, amount, contribution_type):
+        date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        with DatabaseManager.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Validate if member exists
+            cursor.execute("SELECT member_id FROM members WHERE member_id = ?", (member_id,))
+            if not cursor.fetchone():
+                print(f"\n[Error] Failed to log payment. Member ID {member_id} does not exist.")
+                return
+
+            cursor.execute(
+                "INSERT INTO financial_contributions (member_id, amount, type, date) VALUES (?, ?, ?, ?)",
+                (member_id, amount, contribution_type, date_str)
+            )
+            conn.commit()
+            print(f"\n[Success] Recorded ${amount:.2f} as '{contribution_type}' for Member ID {member_id}.")
+
+    @staticmethod
+    def view_financial_report():
+        with DatabaseManager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT c.contribution_id, m.first_name, m.last_name, c.amount, c.type, c.date 
+                FROM financial_contributions c
+                JOIN members m ON c.member_id = m.member_id
+            """)
+            rows = cursor.fetchall()
+            
+            if not rows:
+                print("\n[Info] No financial records found.")
+                return
+            
+            print(f"\n--- {'TxID':<6} | {'Giver':<25} | {'Amount':<10} | {'Type':<15} | {'Date/Time':<16} ---")
+            total = 0
+            for row in rows:
+                giver = f"{row[1]} {row[2]}"
+                print(f"    {row[0]:<6} | {giver:<25} | ${row[3]:<9.2f} | {row[4]:<15} | {row[5]:<16}")
+                total += row[3]
+            print(f"---------------------------------------------------------------------------------")
+            print(f"    TOTAL CHURCH FUNDS ACCUMULATED: ${total:.2f}\n")
+
+
+class EventManager:
+    """Handles organizing and mapping out church events."""
+    @staticmethod
+    def add_event(title, event_date, location):
+        with DatabaseManager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO events (title, event_date, location) VALUES (?, ?, ?)",
+                (title, event_date, location)
+            )
+            conn.commit()
+            print(f"\n[Success] Event '{title}' scheduled for {event_date} successfully!")
+
+    @staticmethod
+    def view_events():
+        with DatabaseManager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM events ORDER BY event_date ASC")
+            rows = cursor.fetchall()
+            
+            if not rows:
+                print("\n[Info] No upcoming events found.")
+                return
+            
+            print(f"\n--- {'ID':<5} | {'Event Title':<30} | {'Date & Time':<18} | {'Location':<20} ---")
+            for row in rows:
+                print(f"    {row[0]:<5} | {row[1]:<30} | {row[2]:<18} | {row[3]:<20}")
+
+
+def clear_screen():
+    os.system('cls' if os.name == 'nt' else 'clear')
+
+def main_menu():
+    DatabaseManager.initialize_db()
+    
+    while True:
+        print("\n=======================================")
+        print("      CHURCH MANAGEMENT SYSTEM         ")
+        print("=======================================")
+        print("1. Add New Church Member")
+        print("2. View Registered Members")
+        print("3. Log Financial Giving (Tithe/Offering)")
+        print("4. Generate Church Financial Report")
+        print("5. Schedule a Ministry Event")
+        print("6. View Calendar Events")
+        print("7. Exit System")
+        print("=======================================")
+        
+        choice = input("Select an operation option (1-7): ").strip()
+        
+        if choice == "1":
+            print("\n--- Register New Member ---")
+            fname = input("First Name: ").strip()
+            lname = input("Last Name: ").strip()
+            phone = input("Phone Number: ").strip()
+            email = input("Email Address: ").strip()
+            if fname and lname:
+                MemberManager.add_member(fname, lname, phone, email)
+            else:
+                print("\n[Warning] First and Last names are mandatory fields.")
+                
+        elif choice == "2":
+            MemberManager.view_all_members()
+            
+        elif choice == "3":
+            print("\n--- Log Financial Giving ---")
+            try:
+                mid = int(input("Enter Contributor Member ID: ").strip())
+                amt = float(input("Enter Contribution Amount ($): ").strip())
+                print("Types: Tithe, Offering, Building Fund, Charity")
+                gtype = input("Enter Contribution Type: ").strip()
+                if gtype:
+                    FinancialManager.add_contribution(mid, amt, gtype)
+                else:
+                    print("\n[Warning] Contribution type cannot be blank.")
+            except ValueError:
+                print("\n[Error] Invalid entry. Member ID must be an integer; Amount must be numerical.")
+                
+        elif choice == "4":
+            FinancialManager.view_financial_report()
+            
+        elif choice == "5":
+            print("\n--- Schedule Ministry Event ---")
+            title = input("Event Title (e.g., Youth Revival): ").strip()
+            edate = input("Date & Time (YYYY-MM-DD HH:MM): ").strip()
+            loc = input("Venue Location: ").strip()
+            if title and edate and loc:
+                EventManager.add_event(title, edate, loc)
+            else:
+                print("\n[Warning] All fields are mandatory to map an event.")
+                
+        elif choice == "6":
+            EventManager.view_events()
+            
+        elif choice == "7":
+            print("\nThank you for using the Church Management System. Goodbye!")
+            break
+        else:
+            print("\n[Error] Invalid menu choice. Please input a number from 1 to 7.")
+
+if __name__ == "__main__":
+    main_menu()
